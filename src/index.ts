@@ -1,3 +1,4 @@
+import './tracing';
 import 'dotenv/config';
 import http from 'http';
 import express from 'express';

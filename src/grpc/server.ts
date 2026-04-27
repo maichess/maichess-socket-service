@@ -5,7 +5,7 @@ import { emitToUser } from '../socket/manager';
 const socketImpl: SocketServer = {
   emitEvent(call, callback) {
     const { userId, event, payload } = call.request;
-    const delivered = emitToUser(userId, event, payload?.toJson() ?? {});
+    const delivered = emitToUser(userId, event, payload ?? {});
     callback(null, { delivered });
   },
 };

@@ -145,5 +145,3 @@ dist
 
 # End of https://www.toptal.com/developers/gitignore/api/node
 Load-Env.ps1
-
-.idea

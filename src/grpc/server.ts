@@ -1,12 +1,17 @@
 import * as grpc from '@grpc/grpc-js';
 import { SocketService, type SocketServer } from '@maichess/platform-protos/socket-service/v1/socket';
-import { emitToUser } from '../socket/manager';
+import { broadcastToMatch, emitToUser } from '../socket/manager';
 
 const socketImpl: SocketServer = {
   emitEvent(call, callback) {
     const { userId, event, payload } = call.request;
     const delivered = emitToUser(userId, event, payload ?? {});
     callback(null, { delivered });
+  },
+  broadcastMatchEvent(call, callback) {
+    const { matchId, event, payload } = call.request;
+    const recipients = broadcastToMatch(matchId, event, payload ?? {});
+    callback(null, { recipients });
   },
 };
 

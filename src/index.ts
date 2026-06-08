@@ -5,6 +5,7 @@ import express from 'express';
 import { errorMiddleware } from './middleware/error';
 import { createSocketManager } from './socket/manager';
 import { startGrpcServer } from './grpc/server';
+import { startOutboundConsumer } from './kafka/consumer';
 
 for (const envVar of ['AUTH_SERVICE_GRPC_ADDR']) {
   if (!process.env[envVar]) {
@@ -24,3 +25,6 @@ httpServer.listen(Number(PORT), () => {
 
 createSocketManager(httpServer);
 startGrpcServer();
+startOutboundConsumer().catch((err) => {
+  console.error('socket.outbound consumer failed to start', err);
+});

@@ -4,6 +4,8 @@
     "module": "commonjs",
     "rootDir": "src",
     "outDir": "dist",
-    "strict": true
-  }
+    "strict": true,
+    "types": ["node"]
+  },
+  "exclude": ["src/**/*.test.ts"]
 }

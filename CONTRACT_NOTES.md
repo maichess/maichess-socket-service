@@ -20,21 +20,23 @@ publish to `socket.outbound.v1` instead of calling this service directly.
 
 Not yet implemented in code — Phase 0 lands the ADR, Avro schemas, and Kafka infra only.
 
-## Protobuf event serde — pending v0.6.0 publish (Kafka task `01`)
+## Protobuf event serde — implemented (Kafka task `01`)
 
 The event schemas are now **Protobuf**, not Avro: `maichess-api-contracts/protos/events/v1/`
 (`socket_outbound.proto`, package `maichess.events.v1` — `SocketPush` rides the `OutboundEvent`
 envelope). They mirror the `events/v1/*.avsc` field-for-field; the `.avsc` files stay in place until
 each topic cuts over (task `02`).
 
-**Blocked on the contracts publish** (publish-first — see
-[serialization-protobuf-migration.md](../../maichess-knowledge-base/knowledge/architecture/serialization-protobuf-migration.md)):
+Contracts **v0.6.0** is published; `@maichess/platform-protos` is pinned at `^0.6.0` in
+`package.json`. Done:
 
-1. The user tags/pushes contracts **v0.6.0** so the generated `events/v1` ts-proto types ship in
-   `@maichess/platform-protos`. A fresh agent shell cannot restore the just-published version.
-2. Bump `@maichess/platform-protos` in `package.json` from `^0.3.2` → `^0.6.0`.
-3. Add the ts-proto `OutboundEvent` types + the Confluent **Protobuf** deserializer next to the
-   existing Avro one in `src/kafka/consumer.ts`. Serde plumbing only; **the consumer is not switched
-   to read Protobuf in task `01`** (that is task `02`'s dual-read step).
+1. `src/kafka/protobuf-serde.ts` — `decodeOutboundEvent` / `encodeOutboundEvent` over the ts-proto
+   `OutboundEvent` type, handling the Confluent Schema-Registry **Protobuf** wire framing
+   (magic byte + schema id + message-index header). Serde plumbing only; **the consumer
+   (`src/kafka/consumer.ts`) still reads Avro** — switching it to dual-read is task `02`.
+2. `src/kafka/protobuf-serde.test.ts` — round-trips both `SocketPush` target variants and asserts
+   the framing guard. Run with `npm test` (Node test runner + ts-node loader).
 
-Cannot build or test until step 1–2 land.
+**Local verify pending (auth handoff):** a fresh agent shell has no `GITHUB_TOKEN`, so
+`npm install` cannot pull `@maichess/platform-protos@0.6.0` from GitHub Packages (401). Run
+`npm install && npm run build && npm test` where the token is available to confirm.

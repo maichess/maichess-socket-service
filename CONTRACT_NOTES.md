@@ -40,3 +40,15 @@ Contracts **v0.6.0** is published; `@maichess/platform-protos` is pinned at `^0.
 **Local verify pending (auth handoff):** a fresh agent shell has no `GITHUB_TOKEN`, so
 `npm install` cannot pull `@maichess/platform-protos@0.6.0` from GitHub Packages (401). Run
 `npm install && npm run build && npm test` where the token is available to confirm.
+
+## socket.outbound.v1 migrated to Protobuf (Kafka task `02`)
+
+The consumer now **dual-reads**: `src/kafka/consumer.ts` reads the Confluent schema id
+(`readSchemaId`), asks the registry whether it is `PROTOBUF` (cached per id), and decodes via
+`decodeOutboundEvent` (proto) or `registry.decode` (Avro). Both arms project onto a normalized push
+(`src/kafka/outbound-decode.ts` — `fromProto` / `fromAvro`) that the dispatcher fans out. A decode
+failure now WARN-logs instead of dropping silently (the socket caveat's root cause).
+
+`npm install && npm run build && npm test` **succeeded locally** (12 tests; the 401 above did not
+recur). The Avro read arm is retained until the registry is removed (task `09`); nothing produces
+Avro to this topic any more, and the `.avsc` is retired.

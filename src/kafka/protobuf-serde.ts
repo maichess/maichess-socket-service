@@ -40,6 +40,14 @@ function zigzag(n: number): number {
   return (n >>> 1) ^ -(n & 1);
 }
 
+// Reads the big-endian schema id (bytes 1..4) from a Confluent-framed message, or
+// returns undefined if the buffer is too short or not magic-byte framed. The dual-read
+// consumer uses this id to ask the registry whether the record is Avro or Protobuf.
+export function readSchemaId(buffer: Buffer): number | undefined {
+  if (buffer.length < 5 || buffer[0] !== MAGIC_BYTE) return undefined;
+  return buffer.readInt32BE(1);
+}
+
 // Strips the Confluent framing and returns the bare protobuf payload bytes.
 function unframe(buffer: Buffer): Buffer {
   if (buffer.length < 5 || buffer[0] !== MAGIC_BYTE) {

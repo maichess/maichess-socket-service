@@ -1,22 +1,16 @@
 import { Kafka, logLevel } from 'kafkajs';
 import { SchemaRegistry } from '@kafkajs/confluent-schema-registry';
 import { broadcastToMatch, emitToUser } from '../socket/manager';
+import { decodeOutboundEvent, readSchemaId } from './protobuf-serde';
+import {
+  AvroOutboundEnvelope,
+  fromAvro,
+  fromProto,
+  NormalizedPush,
+} from './outbound-decode';
 
 const TOPIC = 'socket.outbound.v1';
 const GROUP_ID = 'socket-service';
-
-// Mirrors the SocketPush record in
-// maichess-api-contracts/events/v1/socket.outbound.v1.avsc
-interface SocketPush {
-  target_user_id: string | null;
-  target_match_id: string | null;
-  event_name: string;
-  payload_json: string;
-}
-
-interface OutboundEnvelope {
-  payload: SocketPush;
-}
 
 export async function startOutboundConsumer(): Promise<void> {
   const bootstrap = process.env.KAFKA_BOOTSTRAP;
@@ -37,6 +31,11 @@ export async function startOutboundConsumer(): Promise<void> {
   const registry = new SchemaRegistry({ host: registryUrl });
   const consumer = kafka.consumer({ groupId: GROUP_ID });
 
+  // schema id -> isProtobuf. The topic carries both Avro and Protobuf during the
+  // migration; the two encodings share the Confluent framing and differ only in the
+  // schema id's registry type, so we resolve each id once and route accordingly.
+  const isProtobuf = new Map<number, boolean>();
+
   await consumer.connect();
   await consumer.subscribe({ topic: TOPIC, fromBeginning: false });
 
@@ -44,10 +43,12 @@ export async function startOutboundConsumer(): Promise<void> {
     eachMessage: async ({ message }) => {
       if (!message.value) return;
       try {
-        const envelope = (await registry.decode(message.value)) as OutboundEnvelope;
-        dispatch(envelope.payload);
+        const push = await decode(message.value, registry, registryUrl, isProtobuf);
+        if (push) dispatch(push);
       } catch (err) {
-        console.error('Failed to handle socket.outbound message', err);
+        // Fire-and-forget hop: a decode failure must be visible, not a silent drop
+        // (the root cause of the socket caveat task 02 resolves).
+        console.warn('Failed to decode socket.outbound message; dropping', err);
       }
     },
   });
@@ -55,37 +56,57 @@ export async function startOutboundConsumer(): Promise<void> {
   console.log(`Kafka consumer subscribed to ${TOPIC}`);
 }
 
-function dispatch(push: SocketPush): void {
-  if (!push?.event_name) return;
+async function decode(
+  value: Buffer,
+  registry: SchemaRegistry,
+  registryUrl: string,
+  cache: Map<number, boolean>
+): Promise<NormalizedPush | undefined> {
+  const schemaId = readSchemaId(value);
+  if (schemaId === undefined) {
+    console.warn('Dropping non-Confluent-framed socket.outbound message');
+    return undefined;
+  }
+
+  if (await schemaIsProtobuf(schemaId, registryUrl, cache)) {
+    return fromProto(decodeOutboundEvent(value));
+  }
+
+  return fromAvro((await registry.decode(value)) as AvroOutboundEnvelope);
+}
+
+async function schemaIsProtobuf(
+  schemaId: number,
+  registryUrl: string,
+  cache: Map<number, boolean>
+): Promise<boolean> {
+  const cached = cache.get(schemaId);
+  if (cached !== undefined) return cached;
+
+  // Confluent registry: GET /schemas/ids/{id} returns { schemaType } — absent means AVRO.
+  const res = await fetch(`${registryUrl}/schemas/ids/${schemaId}`);
+  const body = (await res.json()) as { schemaType?: string };
+  const proto = body.schemaType === 'PROTOBUF';
+  cache.set(schemaId, proto);
+  return proto;
+}
+
+function dispatch(push: NormalizedPush): void {
+  if (!push.eventName) return;
 
   let body: unknown = {};
-  if (push.payload_json) {
+  if (push.payloadJson) {
     try {
-      body = JSON.parse(push.payload_json);
+      body = JSON.parse(push.payloadJson);
     } catch {
-      console.error(`Invalid payload_json for ${push.event_name}`);
+      console.warn(`Invalid payload_json for ${push.eventName}`);
       return;
     }
   }
 
-  const matchId = unwrap(push.target_match_id);
-  const userId = unwrap(push.target_user_id);
-
-  if (matchId) {
-    broadcastToMatch(matchId, push.event_name, body);
-  } else if (userId) {
-    emitToUser(userId, push.event_name, body);
+  if (push.targetMatchId) {
+    broadcastToMatch(push.targetMatchId, push.eventName, body);
+  } else if (push.targetUserId) {
+    emitToUser(push.targetUserId, push.eventName, body);
   }
-}
-
-// Avro nullable unions (["null","string"]) may decode either to the bare value
-// or wrapped as { string: value } depending on the codec. Normalize both.
-function unwrap(value: unknown): string | undefined {
-  if (value === null || value === undefined) return undefined;
-  if (typeof value === 'string') return value.length > 0 ? value : undefined;
-  if (typeof value === 'object') {
-    const inner = Object.values(value as Record<string, unknown>)[0];
-    return typeof inner === 'string' && inner.length > 0 ? inner : undefined;
-  }
-  return undefined;
 }

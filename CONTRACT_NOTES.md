@@ -52,3 +52,19 @@ failure now WARN-logs instead of dropping silently (the socket caveat's root cau
 `npm install && npm run build && npm test` **succeeded locally** (12 tests; the 401 above did not
 recur). The Avro read arm is retained until the registry is removed (task `09`); nothing produces
 Avro to this topic any more, and the `.avsc` is retired.
+
+---
+
+## Kafka task 09 — Socket gRPC server removed; `socket.proto` stubbed → PUBLISH HANDOFF
+
+Real-time delivery is now fully event-driven: this service consumes `socket.outbound.v1` and fans
+out. The Socket gRPC **server** (`src/grpc/server.ts`, `EmitEvent` + `BroadcastMatchEvent`) is
+deleted and its bootstrap removed from `index.ts`; only the `Auth.ValidateToken` gRPC **client**
+remains. `socket.proto` is reduced to a version-history stub (like `analysis.proto`) — the `Socket`
+service + all four messages are gone. `GRPC_PORT` is now unused (the deploy dropped the 50051 port).
+`tsc` clean; 5 tests pass.
+
+**Blocked on a contract publish** (shared with engine/match-manager): user commits, tags `vX.Y.Z`,
+pushes. **Post-publish:** bump `@maichess/platform-protos` in `package.json` to the new version,
+`npm install && npm run build && npm test`. No code change expected — the server already imports
+nothing from the stubbed `socket.proto`.
